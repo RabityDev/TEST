@@ -1,26 +1,20 @@
 #!/bin/bash
 
-# Check for root
 if [[ $EUID -ne 0 ]]; then
    echo "This script must be run as root"
    exit 1
 fi
 
-# Colors for output
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-# Ask user for domain
 DOMAIN=$(whiptail --inputbox "Enter your domain name (leave blank if none):" 8 60 3>&1 1>&2 2>&3)
 
-# Ask user if they want SSL
 whiptail --yesno "Do you want to enable SSL with Let's Encrypt?" 8 60
 SSL_CHOICE=$?
 
-# Ask for MariaDB root password
 DB_ROOT_PASS=$(whiptail --passwordbox "Enter MySQL root password:" 8 60 3>&1 1>&2 2>&3)
 
-# Ask for Gitea DB password
 GITEA_DB_PASS=$(whiptail --passwordbox "Enter password for Gitea database user:" 8 60 3>&1 1>&2 2>&3)
 
 echo -e "${GREEN}Updating system and installing dependencies...${NC}"
