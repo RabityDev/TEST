@@ -9,59 +9,65 @@ fi
 GREEN='\033[0;32m'
 NC='\033[0m'
 
-# Functions
-function input_password() {
-    PASSWORD=$(whiptail --passwordbox "$1" 8 60 3>&1 1>&2 2>&3)
-    echo "$PASSWORD"
-}
+# Install dialog if missing
+apt update
+apt install dialog git curl wget mariadb-server nginx certbot python3-certbot-nginx -y
 
+# Functions for dialog input
 function input_text() {
-    TEXT=$(whiptail --inputbox "$1" 8 60 3>&1 1>&2 2>&3)
+    exec 3>&1
+    TEXT=$(dialog --inputbox "$1" 8 50 2>&1 1>&3)
+    exec 3>&-
     echo "$TEXT"
 }
 
-function confirm_menu() {
-    OPTION=$(whiptail --title "$1" --menu "$2" 15 60 4 \
-    "1" "$3" \
-    "2" "$4" 3>&1 1>&2 2>&3)
-    echo "$OPTION"
+function input_pass() {
+    exec 3>&1
+    PASS=$(dialog --insecure --passwordbox "$1" 8 50 2>&1 1>&3)
+    exec 3>&-
+    echo "$PASS"
 }
 
-# Main installer
+function select_menu() {
+    exec 3>&1
+    CHOICE=$(dialog --menu "$1" 15 50 4 "${@:2}" 2>&1 1>&3)
+    exec 3>&-
+    echo "$CHOICE"
+}
 
-# Step 1: Domain choice
+# Clear screen before starting
+clear
+
+# Step 1: Domain
 DOMAIN=$(input_text "Enter your domain name (leave blank for no domain):")
 
-# Step 2: SSL choice
-SSL_OPTION=$(whiptail --title "SSL Option" --menu "Do you want SSL with Let's Encrypt?" 10 60 2 \
-1 "Yes, enable SSL" \
-2 "No, skip SSL" 3>&1 1>&2 2>&3)
+# Step 2: SSL
+SSL_OPTION=$(select_menu "Enable SSL?" 1 "Yes" 2 "No")
 
 # Step 3: Database passwords
-DB_ROOT_PASS=$(input_password "Enter MySQL root password:")
-GITEA_DB_PASS=$(input_password "Enter password for Gitea database user:")
+DB_ROOT_PASS=$(input_pass "Enter MySQL root password:")
+GITEA_DB_PASS=$(input_pass "Enter Gitea DB password:")
 
-# Step 4: Confirm installation
-INSTALL_CONFIRM=$(whiptail --title "Confirmation" --yesno "Ready to install Gitea with the above settings?\nDomain: $DOMAIN\nSSL: $SSL_OPTION" 12 60 3>&1 1>&2 2>&3)
+# Step 4: Confirm
+dialog --yesno "Ready to install Gitea with the following settings?\n\nDomain: $DOMAIN\nSSL: $SSL_OPTION" 12 60
 if [[ $? -ne 0 ]]; then
-    echo "Installation canceled."
+    clear
+    echo "Installation cancelled."
     exit 0
 fi
 
-# Step 5: System update & dependencies
-echo -e "${GREEN}Updating system and installing dependencies...${NC}"
-apt update && apt upgrade -y
-apt install git curl wget mariadb-server nginx certbot python3-certbot-nginx whiptail -y
+clear
+echo -e "${GREEN}Starting Gitea installation...${NC}"
 
-# Step 6: Create Gitea user
-echo -e "${GREEN}Creating Gitea user...${NC}"
+# Step 5: Create Gitea user
+echo -e "${GREEN}Creating Gitea system user...${NC}"
 adduser --system --shell /bin/bash --gecos 'Gitea' --group --disabled-password --home /home/git git
 
-# Step 7: Secure MariaDB
+# Step 6: Secure MariaDB
 echo -e "${GREEN}Securing MariaDB...${NC}"
 mysql_secure_installation
 
-# Step 8: Create Gitea database
+# Step 7: Create Gitea database
 echo -e "${GREEN}Creating Gitea database...${NC}"
 mysql -u root -p"$DB_ROOT_PASS" <<MYSQL_SCRIPT
 CREATE DATABASE gitea CHARACTER SET 'utf8mb4' COLLATE 'utf8mb4_unicode_ci';
@@ -71,12 +77,12 @@ FLUSH PRIVILEGES;
 EXIT;
 MYSQL_SCRIPT
 
-# Step 9: Install Gitea binary
-echo -e "${GREEN}Installing Gitea...${NC}"
+# Step 8: Install Gitea binary
+echo -e "${GREEN}Installing Gitea binary...${NC}"
 wget -O /usr/local/bin/gitea https://dl.gitea.io/gitea/1.24.5/gitea-1.24.5-linux-amd64
 chmod +x /usr/local/bin/gitea
 
-# Step 10: Directories & permissions
+# Step 9: Directories & permissions
 echo -e "${GREEN}Setting directories & permissions...${NC}"
 mkdir -p /var/lib/gitea/{custom,data,log}
 chown -R git:git /var/lib/gitea/
@@ -85,8 +91,8 @@ mkdir /etc/gitea
 chown root:git /etc/gitea
 chmod 770 /etc/gitea
 
-# Step 11: Create systemd service
-echo -e "${GREEN}Creating systemd service for Gitea...${NC}"
+# Step 10: Create systemd service
+echo -e "${GREEN}Creating systemd service...${NC}"
 cat <<EOF > /etc/systemd/system/gitea.service
 [Unit]
 Description=Gitea
@@ -109,9 +115,8 @@ EOF
 systemctl daemon-reload
 systemctl enable gitea
 systemctl start gitea
-systemctl status gitea
 
-# Step 12: Nginx config if domain provided
+# Step 11: Nginx setup if domain provided
 if [[ -n "$DOMAIN" ]]; then
     echo -e "${GREEN}Configuring Nginx...${NC}"
     cat <<EOF > /etc/nginx/sites-available/gitea
@@ -138,4 +143,4 @@ EOF
 fi
 
 echo -e "${GREEN}Gitea installation completed!${NC}"
-echo "Visit http://$DOMAIN:3000 or your server IP to complete web setup."
+echo "Visit http://$DOMAIN:3000 or your server IP to finish web setup."
